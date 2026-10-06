@@ -90,27 +90,27 @@ export default function Home() {
 
           <form onSubmit={handleSubmit}>
             <label className="field">
-              <span>Nombre del usuario <b>*</b></span>
-              <input name="userName" autoComplete="name" placeholder="Nombre y apellido" maxLength={120} required />
+              <span>Nombre del usuario</span>
+              <input name="userName" autoComplete="name" placeholder="Nombre y apellido" maxLength={120} />
             </label>
             <label className="field">
-              <span>Instrumento <b>*</b></span>
-              <input name="instrument" placeholder="Ej. Guitarra acústica" maxLength={120} required />
+              <span>Instrumento</span>
+              <input name="instrument" placeholder="Ej. Guitarra acústica" maxLength={120} />
             </label>
             <div className="field-row">
               <label className="field">
-                <span>Número de parte <b>*</b></span>
-                <input name="partNumber" placeholder="Ej. IB-204" maxLength={80} required />
+                <span>Número de parte</span>
+                <input name="partNumber" placeholder="Ej. IB-204" maxLength={80} />
               </label>
               <label className="field">
-                <span>Número de serie <b>*</b></span>
-                <input name="serialNumber" placeholder="Ej. SN-008421" maxLength={120} required />
+                <span>Número de serie</span>
+                <input name="serialNumber" placeholder="Ej. SN-008421" maxLength={120} />
               </label>
             </div>
             <label className="photo-picker">
               <span className="upload-symbol" aria-hidden="true">+</span>
-              <span className="photo-copy"><strong>Subir foto del instrumento <b>*</b></strong><small>JPG, PNG o WebP · máximo 5 MB</small></span>
-              <input name="photo" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => setPhotoName(event.currentTarget.files?.[0]?.name ?? "")} required />
+              <span className="photo-copy"><strong>Subir foto del instrumento</strong><small>JPG, PNG o WebP · máximo 5 MB</small></span>
+              <input name="photo" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => setPhotoName(event.currentTarget.files?.[0]?.name ?? "")} />
               <span className="choose-file">ELEGIR ARCHIVO</span>
             </label>
             <p className="file-name" aria-live="polite">{photoName || "La foto se guardará con este registro."}</p>

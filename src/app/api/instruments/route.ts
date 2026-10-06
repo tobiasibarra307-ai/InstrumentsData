@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { del, put } from "@vercel/blob";
 import { NextResponse } from "next/server";
+import { buildInstrumentPayload } from "@/lib/instrumentForm.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,12 +18,14 @@ type InstrumentRow = {
 
 function getDatabase() {
   const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) throw new Error("Falta configurar DATABASE_URL en Vercel.");
+  if (!connectionString) return null;
   return neon(connectionString);
 }
 
 async function ensureTable() {
   const sql = getDatabase();
+  if (!sql) return null;
+
   await sql.query(`
     CREATE TABLE IF NOT EXISTS instruments (
       id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -40,6 +43,10 @@ async function ensureTable() {
 export async function GET() {
   try {
     const sql = await ensureTable();
+    if (!sql) {
+      return NextResponse.json({ instruments: [], warning: "Falta configurar DATABASE_URL en Vercel." }, { status: 200 });
+    }
+
     const instruments = await sql.query(`
       SELECT id, user_name, instrument, part_number, serial_number, photo_url, created_at
       FROM instruments
@@ -57,43 +64,51 @@ function isUploadedFile(value: FormDataEntryValue | null): value is File {
 }
 
 export async function POST(request: Request) {
-  let photoUrl: string | undefined;
+  let photoUrl = "";
 
   try {
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      throw new Error("Falta configurar BLOB_READ_WRITE_TOKEN en Vercel.");
+    if (!process.env.DATABASE_URL) {
+      return NextResponse.json({ error: "Falta configurar DATABASE_URL en Vercel." }, { status: 503 });
     }
 
     const form = await request.formData();
-    const userName = String(form.get("userName") ?? "").trim();
-    const instrument = String(form.get("instrument") ?? "").trim();
-    const partNumber = String(form.get("partNumber") ?? "").trim();
-    const serialNumber = String(form.get("serialNumber") ?? "").trim();
-    const photo = form.get("photo");
+    const payload = buildInstrumentPayload(form);
+    const { userName, instrument, partNumber, serialNumber, photo } = payload;
 
-    if (!userName || !instrument || !partNumber || !serialNumber) {
-      return NextResponse.json({ error: "Completa todos los campos obligatorios." }, { status: 400 });
+    const hasPhoto = !!photo && isUploadedFile(photo);
+    if (hasPhoto && photo.size === 0) {
+      return NextResponse.json({ error: "La foto seleccionada no es válida." }, { status: 400 });
     }
-    if (!isUploadedFile(photo) || photo.size === 0 || !photo.type.startsWith("image/")) {
-      return NextResponse.json({ error: "Selecciona una foto válida del instrumento." }, { status: 400 });
+    if (hasPhoto && !photo.type.startsWith("image/")) {
+      return NextResponse.json({ error: "La foto debe ser una imagen válida." }, { status: 400 });
     }
-    if (photo.size > 5 * 1024 * 1024) {
+    if (hasPhoto && photo.size > 5 * 1024 * 1024) {
       return NextResponse.json({ error: "La foto debe pesar menos de 5 MB." }, { status: 400 });
     }
 
-    const extension = photo.name.split(".").pop()?.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8);
-    const blob = await put(`instrument-photos/${crypto.randomUUID()}${extension ? `.${extension}` : ""}`, photo, {
-      access: "public",
-      contentType: photo.type,
-    });
-    photoUrl = blob.url;
+    if (hasPhoto) {
+      if (!process.env.BLOB_READ_WRITE_TOKEN) {
+        throw new Error("Falta configurar BLOB_READ_WRITE_TOKEN en Vercel.");
+      }
+
+      const extension = photo.name.split(".").pop()?.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8);
+      const blob = await put(`instrument-photos/${crypto.randomUUID()}${extension ? `.${extension}` : ""}`, photo, {
+        access: "public",
+        contentType: photo.type,
+      });
+      photoUrl = blob.url;
+    }
 
     const sql = await ensureTable();
+    if (!sql) {
+      return NextResponse.json({ error: "Falta configurar DATABASE_URL en Vercel." }, { status: 503 });
+    }
+
     const rows = await sql.query(
       `INSERT INTO instruments (user_name, instrument, part_number, serial_number, photo_url)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, user_name, instrument, part_number, serial_number, photo_url, created_at`,
-      [userName, instrument, partNumber, serialNumber, photoUrl],
+      [userName || "", instrument || "", partNumber || "", serialNumber || "", photoUrl || ""],
     );
 
     return NextResponse.json({ instrument: rows[0] as InstrumentRow }, { status: 201 });
