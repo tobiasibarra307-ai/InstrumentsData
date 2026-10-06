@@ -1,5 +1,6 @@
+import { promises as fs } from "fs";
+import path from "path";
 import { neon } from "@neondatabase/serverless";
-import { del, put } from "@vercel/blob";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -52,14 +53,15 @@ export async function GET() {
   }
 }
 
+function isUploadedFile(value: FormDataEntryValue | null): value is File {
+  return !!value && typeof value === "object" && "arrayBuffer" in value && typeof (value as File).arrayBuffer === "function";
+}
+
 export async function POST(request: Request) {
   let photoUrl: string | undefined;
+  let savedPhotoName: string | undefined;
 
   try {
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      throw new Error("Falta conectar Vercel Blob y configurar BLOB_READ_WRITE_TOKEN.");
-    }
-
     const form = await request.formData();
     const userName = String(form.get("userName") ?? "").trim();
     const instrument = String(form.get("instrument") ?? "").trim();
@@ -70,7 +72,7 @@ export async function POST(request: Request) {
     if (!userName || !instrument || !partNumber || !serialNumber) {
       return NextResponse.json({ error: "Completa todos los campos obligatorios." }, { status: 400 });
     }
-    if (!(photo instanceof File) || photo.size === 0 || !photo.type.startsWith("image/")) {
+    if (!isUploadedFile(photo) || photo.size === 0 || !photo.type.startsWith("image/")) {
       return NextResponse.json({ error: "Selecciona una foto válida del instrumento." }, { status: 400 });
     }
     if (photo.size > 5 * 1024 * 1024) {
@@ -78,11 +80,16 @@ export async function POST(request: Request) {
     }
 
     const extension = photo.name.split(".").pop()?.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8);
-    const blob = await put(`instrument-photos/${crypto.randomUUID()}${extension ? `.${extension}` : ""}`, photo, {
-      access: "public",
-      contentType: photo.type,
-    });
-    photoUrl = blob.url;
+    const uploadDirectory = path.join(process.cwd(), "public", "uploads");
+    await fs.mkdir(uploadDirectory, { recursive: true });
+
+    const fileName = `${Date.now()}-${crypto.randomUUID()}${extension ? `.${extension}` : ""}`;
+    const filePath = path.join(uploadDirectory, fileName);
+    const buffer = Buffer.from(await photo.arrayBuffer());
+    await fs.writeFile(filePath, buffer);
+
+    photoUrl = `/uploads/${fileName}`;
+    savedPhotoName = fileName;
 
     const sql = await ensureTable();
     const rows = await sql.query(
@@ -94,7 +101,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ instrument: rows[0] as InstrumentRow }, { status: 201 });
   } catch (error) {
-    if (photoUrl) await del(photoUrl).catch(() => undefined);
+    if (savedPhotoName) {
+      await fs.rm(path.join(process.cwd(), "public", "uploads", savedPhotoName), { force: true }).catch(() => undefined);
+    }
     const message = error instanceof Error ? error.message : "No se pudo guardar el instrumento.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
